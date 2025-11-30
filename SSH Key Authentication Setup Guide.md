@@ -1,66 +1,106 @@
+✅ **Direct server SSH** || **Cloudflare Tunnel (Docker) SSH mode**
 
-
-# 📘 **SSH Key Authentication Setup Guide**
-
-### **Windows PC (VS Code) → Ubuntu Server**
-
-This document describes the correct, secure, and permanent steps to configure SSH key-based authentication from a Windows workstation to any Ubuntu server.
 
 ---
 
-# 1. **Generate SSH Key on Windows**
+# 📘 **SSH Key Authentication Setup Guide**
 
-1. Open **PowerShell** on Windows.
-2. Generate an ED25519 key pair:
+### **Windows PC (VS Code) → Ubuntu Server (Direct IP or Cloudflare Tunnel)**
+
+**Supports Cloudflare Tunnel (docker-cloudflared).**
+
+---
+
+# 1. Generate SSH Key on Windows
+
+Open **PowerShell**:
 
 ```powershell
 ssh-keygen -t ed25519 -C "your_email@example.com"
 ```
 
-3. When prompted for a location, press **Enter** (default):
+Press **Enter** for default path:
 
 ```
-C:\Users\<windows-user>\.ssh\id_ed25519
+C:\Users\<WIN-USER>\.ssh\id_ed25519
 ```
 
-4. Press **Enter** for passphrase (or set one).
+Press **Enter** for passphrase unless you want one.
 
-This creates:
+Created files:
 
-| File             | Location                | Description             |
-| ---------------- | ----------------------- | ----------------------- |
-| `id_ed25519`     | `C:\Users\<user>\.ssh\` | Private key (keep safe) |
-| `id_ed25519.pub` | Same folder             | Public key              |
+| File             | Location    | Purpose                             |
+| ---------------- | ----------- | ----------------------------------- |
+| `id_ed25519`     | private key | Keep secure (NEVER copy to server!) |
+| `id_ed25519.pub` | public key  | Upload to server                    |
 
 ---
 
-# 2. **Copy Public Key to Ubuntu Server**
+# 2. Copy Public Key to Ubuntu Server
 
-Use SCP to upload the public key.
-
-### If connecting directly to server IP:
+## **A. Direct SSH (Server has IP)**
 
 ```powershell
-scp C:\Users\<user>\.ssh\id_ed25519.pub username@SERVER_IP:/tmp/mykey.pub
-```
-
-### If connecting via Cloudflare Tunnel:
-
-```powershell
-scp -P <PORT> C:\Users\<user>\.ssh\id_ed25519.pub username@localhost:/tmp/mykey.pub
+scp C:\Users\<WIN-USER>\.ssh\id_ed25519.pub username@SERVER_IP:/tmp/mykey.pub
 ```
 
 ---
 
-# 3. **Install the Key on Ubuntu Server**
+## **B. SSH Through Cloudflare Tunnel (Docker)**
+
+Your docker command likely looks like:
+
+```
+docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token <TOKEN>
+```
+
+Cloudflare tunnel creates an SSH endpoint like:
+
+```
+ssh://<your-tunnel-name>.cfargotunnel.com → localhost:22
+```
+
+### To copy your key using the tunnel:
+
+```powershell
+scp -P <CLOUDFLARE_SSH_PORT> C:\Users\<WIN-USER>\.ssh\id_ed25519.pub username@localhost:/tmp/mykey.pub
+```
+
+Examples:
+
+**Default SSH (22):**
+
+```powershell
+scp -P 22 C:\Users\aolmd\.ssh\id_ed25519.pub erp@localhost:/tmp/mykey.pub
+```
+
+**If using custom SSH port (e.g., 2443):**
+
+```powershell
+scp -P 2443 C:\Users\aolmd\.ssh\id_ed25519.pub erp@localhost:/tmp/mykey.pub
+```
+
+---
+
+# 3. Install the Key on Ubuntu Server
 
 Login once with password:
 
-```bash
+## **A. Direct IP**
+
+```powershell
 ssh username@SERVER_IP
 ```
 
-Then run:
+## **B. Cloudflare Tunnel**
+
+```powershell
+ssh -p <CLOUDFLARE_PORT> username@localhost
+```
+
+---
+
+## Then run on Ubuntu:
 
 ```bash
 mkdir -p ~/.ssh
@@ -70,11 +110,9 @@ chmod 600 ~/.ssh/authorized_keys
 rm /tmp/mykey.pub
 ```
 
-**Important:**
-The server must **NOT** have its own `id_ed25519` inside `~/.ssh/`.
-Only Windows keys should be allowed.
+❗Important: The server should **not** have its own `id_ed25519` inside `~/.ssh/`.
 
-If present, remove them:
+If present:
 
 ```bash
 rm ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub 2>/dev/null
@@ -82,11 +120,7 @@ rm ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub 2>/dev/null
 
 ---
 
-# 4. **Verify Key Permissions**
-
-SSH will refuse the key if permissions are wrong.
-
-Run:
+# 4. Fix Permissions (MANDATORY)
 
 ```bash
 chmod 700 ~/.ssh
@@ -94,24 +128,29 @@ chmod 600 ~/.ssh/authorized_keys
 chown -R username:username ~/.ssh
 ```
 
-This is **mandatory**.
+SSH will reject the key if permissions are incorrect.
 
 ---
 
-# 5. **Ensure SSH Server Allows Public Key Auth**
+# 5. Verify SSH Server Settings
 
-Open SSH config:
+Edit SSH configuration:
 
 ```bash
 sudo nano /etc/ssh/sshd_config
 ```
 
-Ensure these lines exist and are not commented (`#` removed):
+Ensure:
 
 ```
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
-PasswordAuthentication yes   # Optional: disable later
+```
+
+Optional (if you later disable passwords):
+
+```
+PasswordAuthentication yes
 ```
 
 Restart SSH:
@@ -122,99 +161,103 @@ sudo systemctl restart ssh
 
 ---
 
-# 6. **Windows SSH Config (Recommended)**
+# 6. Windows SSH Config (Recommended)
 
-Create/edit:
-
-```
-C:\Users\<user>\.ssh\config
-```
-
-Add:
+Edit:
 
 ```
-Host myserver
-    HostName 192.168.32.128
-    User erp
-    IdentityFile C:\Users\<user>\.ssh\id_ed25519
+C:\Users\<WIN-USER>\.ssh\config
 ```
 
-If using Cloudflare Tunnel:
+Add BOTH options:
+
+---
+
+## **A. Direct Server SSH**
 
 ```
 Host myserver
+    HostName SERVER_IP
+    User username
+    IdentityFile C:\Users\<WIN-USER>\.ssh\id_ed25519
+```
+
+---
+
+## **B. Cloudflare Tunnel SSH**
+
+Cloudflare gives a hostname like:
+
+```
+ssh.example.com or <tunnel>.cfargotunnel.com
+```
+
+OR you connect via localhost (docker-cloudflared mapped to SSH port).
+
+### **If Tunnel Mapped to Port 22:**
+
+```
+Host myserver-tunnel
     HostName localhost
-    Port <PORT>
-    User erp
-    IdentityFile C:\Users\<user>\.ssh\id_ed25519
+    Port 22
+    User username
+    IdentityFile C:\Users\<WIN-USER>\.ssh\id_ed25519
 ```
 
-Now connect with:
+### **If Tunnel Mapped to Custom SSH Port:**
+
+```
+Host myserver-tunnel
+    HostName localhost
+    Port 2443
+    User username
+    IdentityFile C:\Users\<WIN-USER>\.ssh\id_ed25519
+```
+
+### **If using Cloudflare SSH hostname directly:**
+
+```
+Host myserver-tunnel
+    HostName <your-tunnel-name>.cfargotunnel.com
+    User username
+    Port 22
+    IdentityFile C:\Users\<WIN-USER>\.ssh\id_ed25519
+```
+
+---
+
+# 7. Connect Using SSH
+
+### Direct IP:
 
 ```powershell
 ssh myserver
 ```
 
----
-
-# 7. **Using VS Code Remote SSH**
-
-1. Open **VS Code**.
-2. Press **Ctrl + Shift + P**.
-3. Select:
-
-```
-Remote-SSH: Add New SSH Host
-```
-
-Enter:
-
-```
-ssh myserver
-```
-
-4. Save to SSH config.
-5. Connect from the **Remote Explorer** panel.
-
----
-
-# 8. **Test Passwordless Login**
-
-From Windows:
+### Cloudflare Tunnel:
 
 ```powershell
-ssh myserver
+ssh myserver-tunnel
 ```
-
-If it logs in without password → **SUCCESS** ✔️
 
 ---
 
-# 9. **Troubleshooting**
+# 8. Connect Using VS Code
 
-Check if key gets rejected:
+1. Open VS Code
+2. Press **Ctrl + Shift + P → Remote-SSH: Connect to Host**
+3. Choose:
 
-```bash
-tail -n 40 /var/log/auth.log
-```
+   * `myserver` (direct IP)
+   * or `myserver-tunnel` (Cloudflare Tunnel)
 
-Common issues:
-
-| Problem                         | Solution                   |
-| ------------------------------- | -------------------------- |
-| Wrong permissions               | Fix using chmod + chown    |
-| Wrong username                  | Must match Ubuntu username |
-| Server has its own `id_ed25519` | Remove it                  |
-| Key pasted incorrectly          | Re-copy using SCP          |
-| Wrong IdentityFile on Windows   | Fix in SSH config          |
+VS Code will open a remote session over SSH.
 
 ---
 
-# 10. **Optional: Disable Password Login (Highly Secure)**
+# 9. Disable Password Login (Optional but Secure)
 
-After confirming key login works flawlessly:
-
-Edit sshd:
+After confirming SSH key login works:
 
 ```bash
 sudo nano /etc/ssh/sshd_config
@@ -232,17 +275,36 @@ Apply:
 sudo systemctl restart ssh
 ```
 
-Now SSH only allows key-based authentication.
-
 ---
 
-# ✅ **DOCUMENTATION FINISHED**
+# 10. Troubleshooting (Cloudflare + SSH)
 
-If you want, I can convert this into:
+Run:
 
-📄 PDF
-📘 Markdown
-📑 HTML
-📝 Notion-style page
+```bash
+tail -n 40 /var/log/auth.log
+```
 
-Just tell me the format.
+Common issues:
+
+| Issue                                 | Fix               |
+| ------------------------------------- | ----------------- |
+| Wrong key in `authorized_keys`        | Re-copy using SCP |
+| Incorrect permissions                 | Run chmod + chown |
+| Server still has its own `id_ed25519` | Remove it         |
+| Wrong Cloudflare SSH port             | Update SSH config |
+| Cloudflared container not running     | Restart docker    |
+
+Check tunnel status:
+
+```bash
+docker logs <cloudflared_container_name>
+```
+
+Restart tunnel:
+
+```bash
+docker restart <cloudflared_container_name>
+```
+
+---
